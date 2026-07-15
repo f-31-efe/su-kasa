@@ -1,0 +1,641 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#020617" />
+<title>Su Kasa</title>
+<link rel="manifest" href="manifest.json" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>
+  html, body { background: #020617; -webkit-tap-highlight-color: transparent; }
+  * { font-variant-numeric: tabular-nums; }
+</style>
+<script>
+  // Firebase hazır olana kadar uygulama bekler
+  window.__ready = new Promise((res) => { window.__resolveReady = res; });
+</script>
+</head>
+<body>
+<div id="root"></div>
+
+<!-- ================= 1. ADIM: FIREBASE BİLGİLERİNİ BURAYA YAPIŞTIR ================= -->
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import { getAuth, signInAnonymously } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import { getDatabase, ref, get, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyBxx084oGaqC2zg0X2KwC-nQRPVt_0JxCo",
+    authDomain: "kasa-b11f4.firebaseapp.com",
+    databaseURL: "https://kasa-b11f4-default-rtdb.firebaseio.com",
+    projectId: "kasa-b11f4",
+    storageBucket: "kasa-b11f4.firebasestorage.app",
+    messagingSenderId: "1003259598669",
+    appId: "1:1003259598669:web:25654684a89b4dceac8904",
+  };
+
+  try {
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    await signInAnonymously(getAuth(app));
+    const p = (k) => "sutakip/" + k.replace(/[.$#\[\]\/:]/g, "_");
+
+    window.storage = {
+      async get(key) {
+        const s = await get(ref(db, p(key)));
+        return s.exists() ? { key, value: s.val() } : null;
+      },
+      async set(key, value) {
+        await set(ref(db, p(key)), value);
+        return { key, value };
+      },
+      subscribe(key, cb) {
+        return onValue(ref(db, p(key)), (s) => cb(s.exists() ? s.val() : null));
+      },
+    };
+    window.__resolveReady(true);
+  } catch (e) {
+    console.error(e);
+    document.getElementById("root").innerHTML =
+      '<div style="color:#fda4af;font:16px system-ui;padding:24px;text-align:center">Firebase bağlantısı kurulamadı.<br><br>index.html içindeki firebaseConfig bilgilerini kontrol et.</div>';
+  }
+</script>
+
+<!-- ================= UYGULAMA ================= -->
+<script type="text/babel" data-type="module">
+const { useState, useEffect, useRef, useCallback } = React;
+
+const DAY_KEY = "sutakip:gun";
+const HIST_KEY = "sutakip:gecmis";
+
+const ICONS = {
+  drop: "M12 2.7s6 6.4 6 10.3a6 6 0 1 1-12 0c0-3.9 6-10.3 6-10.3z",
+  check: "M20 6 9 17l-5-5",
+  wallet: "M3 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2H5a2 2 0 0 0 0 4h14a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z M16 13h.01",
+  phone: "M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z M11 18h2",
+  book: "M4 4v16 M4 4h12a2 2 0 0 1 2 2v12H4 M8 9h6 M8 13h6",
+  gift: "M20 12v10H4V12 M2 7h20v5H2z M12 22V7 M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7z M12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z",
+  undo: "M9 14 4 9l5-5 M4 9h11a5 5 0 0 1 0 10h-4",
+  gear: "M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M12 2l1.5 3 3.3-.6 1.3 3.1 2.9 1.7-1.3 3.1 1.3 3.1-2.9 1.7-1.3 3.1-3.3-.6L12 22l-1.5-3-3.3.6-1.3-3.1L3 14.8l1.3-3.1L3 8.6l2.9-1.7 1.3-3.1 3.3.6z",
+  sun: "M12 3v2 M12 19v2 M5.6 5.6 7 7 M17 17l1.4 1.4 M3 12h2 M19 12h2 M5.6 18.4 7 17 M17 7l1.4-1.4 M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0z",
+  moon: "M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z",
+  plus: "M12 5v14 M5 12h14",
+  minus: "M5 12h14",
+  refresh: "M21 12a9 9 0 1 1-2.6-6.4 M21 3v5h-5",
+  x: "M18 6 6 18 M6 6l12 12",
+};
+const I = ({ n, className }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d={ICONS[n]} />
+  </svg>
+);
+
+const DEFAULT_PRODUCTS = [
+  { id: "su", name: "Su", price: 10 },
+  { id: "buyuksu", name: "Büyük Su", price: 20 },
+  { id: "soda", name: "Soda", price: 15 },
+  { id: "meyveli", name: "Meyveli Soda", price: 20 },
+];
+
+const PAY = {
+  nakit: { label: "Nakit", icon: "wallet", cls: "bg-emerald-500 text-emerald-950" },
+  iban: { label: "IBAN", icon: "phone", cls: "bg-sky-400 text-sky-950" },
+  veresiye: { label: "Veresiye", icon: "book", cls: "bg-amber-400 text-amber-950" },
+  ikram: { label: "İkram", icon: "gift", cls: "bg-violet-400 text-violet-950" },
+};
+
+const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+};
+const prettyDate = (s) => { const [y, m, d] = s.split("-"); return `${d}.${m}.${y}`; };
+const tl = (n) => `${(Math.round(n * 100) / 100).toLocaleString("tr-TR")} ₺`;
+const clock = (ts) => new Date(ts).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" });
+
+const parse = (v) => { try { return v ? JSON.parse(v) : null; } catch { return null; } };
+async function readDay() { try { const r = await window.storage.get(DAY_KEY); return r ? parse(r.value) : null; } catch { return null; } }
+async function readHist() { try { const r = await window.storage.get(HIST_KEY); return parse(r?.value) || []; } catch { return []; } }
+
+function App() {
+  const [ready, setReady] = useState(false);
+  const [who, setWho] = useState("");
+  const [day, setDay] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [tab, setTab] = useState("satis");
+  const [sheet, setSheet] = useState(null);
+  const [hist, setHist] = useState([]);
+  const [err, setErr] = useState("");
+  const lock = useRef(false);
+
+  useEffect(() => {
+    (async () => {
+      await window.__ready;
+      setReady(true);
+      setDay(await readDay());
+      setHist(await readHist());
+      setLoading(false);
+      // canlı senkron: başka telefonda satış girilince anında düşer
+      window.storage.subscribe(DAY_KEY, (v) => { if (!lock.current) setDay(parse(v)); });
+      window.storage.subscribe(HIST_KEY, (v) => setHist(parse(v) || []));
+    })();
+  }, []);
+
+  const mutate = useCallback(async (fn) => {
+    lock.current = true;
+    setBusy(true);
+    setErr("");
+    try {
+      const latest = (await readDay()) || day;
+      const next = fn(JSON.parse(JSON.stringify(latest)));
+      await window.storage.set(DAY_KEY, JSON.stringify(next));
+      setDay(next);
+    } catch (e) {
+      setErr("Kaydedilemedi. İnternete bakıp tekrar dene.");
+    } finally {
+      setBusy(false);
+      lock.current = false;
+    }
+  }, [day]);
+
+  if (!ready || loading) return <Screen><p className="text-cyan-200/70">Yükleniyor…</p></Screen>;
+  if (!who) return <WhoScreen onPick={setWho} />;
+
+  const isToday = day && day.date === todayStr() && !day.closed;
+
+  return (
+    <div className="min-h-screen bg-slate-950 text-slate-100 pb-28">
+      <Header who={who} onChangeWho={() => setWho("")} busy={busy} />
+      {err && <p className="mx-4 mb-2 rounded-lg bg-rose-500/15 px-3 py-2 text-sm text-rose-300">{err}</p>}
+
+      {!isToday ? (
+        <OpenDay day={day} hist={hist} onOpen={async (payload) => { await mutate(() => payload); setTab("satis"); }} />
+      ) : (
+        <>
+          {tab === "satis" && <SalesTab day={day} onPick={setSheet} mutate={mutate} who={who} />}
+          {tab === "gunsonu" && (
+            <CloseTab
+              day={day}
+              hist={hist}
+              onClose={async () => {
+                const rep = { ...day, closed: true, closedAt: Date.now(), closedBy: who };
+                const h = [rep, ...(await readHist())].slice(0, 30);
+                await window.storage.set(HIST_KEY, JSON.stringify(h));
+                setHist(h);
+                await mutate((d) => ({ ...d, closed: true, closedAt: Date.now(), closedBy: who }));
+              }}
+            />
+          )}
+          {tab === "ayar" && <SettingsTab day={day} mutate={mutate} />}
+          <TabBar tab={tab} setTab={setTab} />
+        </>
+      )}
+
+      {sheet && (
+        <PaySheet
+          product={sheet}
+          day={day}
+          onClose={() => setSheet(null)}
+          onSave={async (entry) => {
+            setSheet(null);
+            await mutate((d) => ({ ...d, sales: [...d.sales, { ...entry, by: who, id: uid(), ts: Date.now() }] }));
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+const Screen = ({ children }) => (
+  <div className="flex min-h-screen items-center justify-center bg-slate-950 p-6 text-center">{children}</div>
+);
+
+function Header({ who, onChangeWho, busy }) {
+  return (
+    <div className="sticky top-0 z-20 border-b border-cyan-400/15 bg-slate-950/95 px-4 py-3 backdrop-blur">
+      <div className="flex items-center gap-2">
+        <I n="drop" className="h-5 w-5 text-cyan-400" />
+        <h1 className="text-sm font-black uppercase tracking-[0.2em] text-cyan-300">Su Kasa</h1>
+        <span className="ml-auto flex items-center gap-2 text-xs text-slate-400">
+          {busy && <I n="refresh" className="h-3 w-3 animate-spin text-cyan-400" />}
+          <button onClick={onChangeWho} className="rounded-full bg-slate-800 px-3 py-1 font-semibold text-slate-200">{who}</button>
+        </span>
+      </div>
+      <p className="mt-1 text-[11px] text-slate-500">Herkesin telefonunda aynı anda güncellenir</p>
+    </div>
+  );
+}
+
+function WhoScreen({ onPick }) {
+  const [v, setV] = useState("");
+  return (
+    <Screen>
+      <div className="w-full max-w-xs">
+        <I n="drop" className="mx-auto mb-4 h-10 w-10 text-cyan-400" />
+        <h1 className="mb-1 text-2xl font-black text-white">Kim çalışıyor?</h1>
+        <p className="mb-6 text-sm text-slate-400">Adını yaz, satışların yanında görünsün.</p>
+        <input value={v} onChange={(e) => setV(e.target.value)} placeholder="Adın"
+          className="w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-center text-lg text-white outline-none focus:border-cyan-400" />
+        <button onClick={() => v.trim() && onPick(v.trim())} disabled={!v.trim()}
+          className="mt-3 w-full rounded-xl bg-cyan-400 py-3 text-lg font-black text-cyan-950 disabled:opacity-40">Başla</button>
+      </div>
+    </Screen>
+  );
+}
+
+function OpenDay({ day, onOpen, hist }) {
+  const products = day?.products || DEFAULT_PRODUCTS;
+  const [cash, setCash] = useState("");
+  const [stock, setStock] = useState(Object.fromEntries(products.map((p) => [p.id, ""])));
+  const ok = cash !== "" && products.every((p) => stock[p.id] !== "");
+  return (
+    <div className="px-4 py-5">
+      <div className="mb-5 flex items-center gap-2">
+        <I n="sun" className="h-5 w-5 text-amber-400" />
+        <h2 className="text-xl font-black text-white">Günü aç — {prettyDate(todayStr())}</h2>
+      </div>
+      {day?.closed && day.date === todayStr() && (
+        <p className="mb-4 rounded-lg bg-slate-800 px-3 py-2 text-sm text-slate-300">Bugün zaten kapatıldı. Yeniden açarsan gün sıfırdan başlar.</p>
+      )}
+      <label className="mb-1 block text-xs font-bold uppercase tracking-wider text-cyan-300">Kasadaki para</label>
+      <input inputMode="decimal" value={cash} onChange={(e) => setCash(e.target.value.replace(",", "."))} placeholder="0"
+        className="mb-6 w-full rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-2xl font-bold text-white outline-none focus:border-cyan-400" />
+      <p className="mb-2 text-xs font-bold uppercase tracking-wider text-cyan-300">Dolaptaki adetler</p>
+      <div className="space-y-2">
+        {products.map((p) => (
+          <div key={p.id} className="flex items-center gap-3 rounded-xl bg-slate-900 p-3">
+            <span className="flex-1 font-semibold">{p.name}</span>
+            <Stepper value={stock[p.id]} onChange={(v) => setStock((s) => ({ ...s, [p.id]: v }))} />
+          </div>
+        ))}
+      </div>
+      <button disabled={!ok}
+        onClick={() => onOpen({
+          date: todayStr(), openedAt: Date.now(), startCash: Number(cash) || 0,
+          startStock: Object.fromEntries(products.map((p) => [p.id, Number(stock[p.id]) || 0])),
+          products, sales: [], expenses: [], closed: false,
+        })}
+        className="mt-6 w-full rounded-2xl bg-cyan-400 py-4 text-lg font-black text-cyan-950 disabled:bg-slate-800 disabled:text-slate-500">
+        Günü aç
+      </button>
+      {hist.length > 0 && (
+        <div className="mt-8">
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Geçmiş günler</p>
+          {hist.slice(0, 7).map((h) => (
+            <div key={h.date + h.closedAt} className="flex justify-between border-b border-slate-800 py-2 text-sm">
+              <span className="text-slate-400">{prettyDate(h.date)}</span>
+              <span className="font-bold text-cyan-300">{tl(totals(h).ciro)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Stepper({ value, onChange }) {
+  const n = Number(value) || 0;
+  return (
+    <div className="flex items-center gap-1">
+      <button onClick={() => onChange(String(Math.max(0, n - 1)))} className="rounded-lg bg-slate-800 p-2"><I n="minus" className="h-4 w-4" /></button>
+      <input inputMode="numeric" value={value} onChange={(e) => onChange(e.target.value.replace(/\D/g, ""))} placeholder="0"
+        className="w-14 rounded-lg border border-slate-700 bg-slate-950 py-2 text-center font-bold text-white outline-none focus:border-cyan-400" />
+      <button onClick={() => onChange(String(n + 1))} className="rounded-lg bg-slate-800 p-2"><I n="plus" className="h-4 w-4" /></button>
+    </div>
+  );
+}
+
+const soldCount = (day, id) => day.sales.filter((s) => s.productId === id).length;
+
+function totals(day) {
+  const sum = (f) => day.sales.filter(f).reduce((a, s) => a + s.price, 0);
+  const ciro = sum(() => true);
+  const nakit = sum((s) => s.pay === "nakit");
+  const iban = sum((s) => s.pay === "iban");
+  const veresiye = sum((s) => s.pay === "veresiye");
+  const ikramlar = day.sales.filter((s) => s.pay === "ikram");
+  const ikramAdet = ikramlar.length;
+  const ikramDeger = ikramlar.reduce((a, s) => a + (s.listPrice || 0), 0);
+  const giderNakit = day.expenses.filter((e) => e.fromCash !== false).reduce((a, e) => a + e.amount, 0);
+  const giderHepsi = day.expenses.reduce((a, e) => a + e.amount, 0);
+  return { ciro, nakit, iban, veresiye, ikramAdet, ikramDeger, giderNakit, giderHepsi, kasa: day.startCash + nakit - giderNakit };
+}
+
+function SalesTab({ day, onPick, mutate, who }) {
+  const t = totals(day);
+  const son = [...day.sales].reverse().slice(0, 8);
+  return (
+    <div className="px-4 py-4">
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <Stat label="Kasada" value={tl(t.kasa)} tone="text-emerald-400" />
+        <Stat label="Ciro" value={tl(t.ciro)} tone="text-cyan-300" />
+        <Stat label="Veresiye" value={tl(t.veresiye)} tone="text-amber-400" />
+        <Stat label={`İkram (${t.ikramAdet} adet)`} value={tl(t.ikramDeger)} tone="text-violet-300" />
+      </div>
+      <p className="mb-2 text-xs font-bold uppercase tracking-wider text-cyan-300">Satış yap — ürüne bas</p>
+      <div className="grid grid-cols-2 gap-3">
+        {day.products.map((p) => {
+          const kalan = (day.startStock[p.id] || 0) - soldCount(day, p.id);
+          return (
+            <button key={p.id} onClick={() => onPick(p)}
+              className="rounded-2xl border border-cyan-400/20 bg-gradient-to-b from-slate-900 to-slate-900/40 p-4 text-left transition active:scale-[0.97]">
+              <p className="text-base font-black leading-tight text-white">{p.name}</p>
+              <p className="mt-1 text-2xl font-black text-cyan-300">{tl(p.price)}</p>
+              <p className={`mt-2 text-xs font-semibold ${kalan <= 3 ? "text-rose-400" : "text-slate-500"}`}>Dolapta {kalan} adet</p>
+            </button>
+          );
+        })}
+      </div>
+      <ExpenseBox day={day} mutate={mutate} who={who} />
+      <p className="mb-2 mt-6 text-xs font-bold uppercase tracking-wider text-slate-500">Son hareketler</p>
+      {son.length === 0 && <p className="text-sm text-slate-600">Henüz satış yok.</p>}
+      <div className="space-y-1">
+        {son.map((s) => {
+          const P = PAY[s.pay];
+          const p = day.products.find((x) => x.id === s.productId);
+          return (
+            <div key={s.id} className="flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-sm">
+              <I n={P.icon} className="h-4 w-4 shrink-0 text-slate-400" />
+              <span className="font-semibold">{p?.name}</span>
+              <span className="truncate text-slate-500">{s.person || P.label}</span>
+              {s.pay === "ikram"
+                ? <span className="ml-auto font-bold text-violet-300">İkram</span>
+                : <span className="ml-auto font-bold text-cyan-300">{tl(s.price)}</span>}
+              <span className="shrink-0 text-[10px] text-slate-600">{clock(s.ts)} · {s.by}</span>
+              <button onClick={() => mutate((d) => ({ ...d, sales: d.sales.filter((x) => x.id !== s.id) }))} className="rounded p-1 text-slate-500 active:text-rose-400">
+                <I n="undo" className="h-4 w-4" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+const Stat = ({ label, value, tone }) => (
+  <div className="rounded-xl bg-slate-900 p-3">
+    <p className="text-[10px] font-bold uppercase tracking-wider text-slate-500">{label}</p>
+    <p className={`mt-0.5 text-lg font-black ${tone}`}>{value}</p>
+  </div>
+);
+
+function ExpenseBox({ day, mutate, who }) {
+  const [open, setOpen] = useState(false);
+  const [d, setD] = useState("");
+  const [a, setA] = useState("");
+  return (
+    <div className="mt-5 rounded-2xl border border-slate-800 p-3">
+      <button onClick={() => setOpen(!open)} className="flex w-full items-center gap-2 text-sm font-bold text-rose-300">
+        <I n="minus" className="h-4 w-4" /> Ekstra harcama ekle
+        <span className="ml-auto text-slate-500">{tl(totals(day).giderHepsi)}</span>
+      </button>
+      {open && (
+        <div className="mt-3 space-y-2">
+          <input value={d} onChange={(e) => setD(e.target.value)} placeholder="Ne için? (poşet, temizlik…)"
+            className="w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-rose-400" />
+          <div className="flex gap-2">
+            <input inputMode="decimal" value={a} onChange={(e) => setA(e.target.value.replace(",", "."))} placeholder="Tutar"
+              className="w-28 rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm font-bold outline-none focus:border-rose-400" />
+            <button disabled={!d.trim() || !a}
+              onClick={async () => {
+                await mutate((x) => ({ ...x, expenses: [...x.expenses, { id: uid(), desc: d.trim(), amount: Number(a) || 0, fromCash: true, by: who, ts: Date.now() }] }));
+                setD(""); setA(""); setOpen(false);
+              }}
+              className="flex-1 rounded-lg bg-rose-400 text-sm font-black text-rose-950 disabled:bg-slate-800 disabled:text-slate-500">
+              Kasadan düş
+            </button>
+          </div>
+          {day.expenses.map((e) => (
+            <div key={e.id} className="flex items-center gap-2 text-xs text-slate-400">
+              <span>{e.desc}</span>
+              <span className="ml-auto font-bold text-rose-300">-{tl(e.amount)}</span>
+              <button onClick={() => mutate((x) => ({ ...x, expenses: x.expenses.filter((y) => y.id !== e.id) }))}><I n="x" className="h-3 w-3" /></button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PaySheet({ product, day, onClose, onSave }) {
+  const [pay, setPay] = useState(null);
+  const [person, setPerson] = useState("");
+  const [price, setPrice] = useState(String(product.price));
+  const names = [...new Set(day.sales.filter((s) => s.person).map((s) => s.person))].slice(0, 6);
+  return (
+    <div className="fixed inset-0 z-30 flex items-end bg-black/70" onClick={onClose}>
+      <div className="w-full rounded-t-3xl border-t border-cyan-400/25 bg-slate-900 p-5 pb-8" onClick={(e) => e.stopPropagation()}>
+        <div className="mx-auto mb-4 h-1 w-10 rounded-full bg-slate-700" />
+        <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Satış</p>
+        <h3 className="mb-4 text-2xl font-black text-white">{product.name}</h3>
+        {pay === "ikram" ? (
+          <p className="mb-4 rounded-lg bg-violet-400/15 px-3 py-2 text-sm text-violet-200">
+            İkram — para alınmıyor. Dolaptan 1 adet düşer, {tl(product.price)} ikram olarak yazılır.
+          </p>
+        ) : (
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Fiyat</span>
+            <input inputMode="decimal" value={price} onChange={(e) => setPrice(e.target.value.replace(",", "."))}
+              className="w-24 rounded-lg border border-slate-700 bg-slate-950 px-3 py-1.5 text-lg font-black text-cyan-300 outline-none focus:border-cyan-400" />
+            <span className="text-lg font-black text-cyan-300">₺</span>
+          </div>
+        )}
+        <div className="grid grid-cols-2 gap-2">
+          {Object.entries(PAY).map(([k, v]) => (
+            <button key={k} onClick={() => setPay(k)}
+              className={`flex flex-col items-center gap-1 rounded-xl py-4 font-black transition ${pay === k ? v.cls : "bg-slate-800 text-slate-300"}`}>
+              <I n={v.icon} className="h-5 w-5" />
+              <span className="text-sm">{v.label}</span>
+            </button>
+          ))}
+        </div>
+        {(pay === "veresiye" || pay === "ikram") && (
+          <div className="mt-3">
+            <input value={person} onChange={(e) => setPerson(e.target.value)}
+              placeholder={pay === "ikram" ? "Kime ikram edildi? (yazmasan da olur)" : "Kime verildi? (isim)"}
+              className="w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 outline-none focus:border-amber-400" />
+            <div className="mt-2 flex flex-wrap gap-1">
+              {names.map((n) => (
+                <button key={n} onClick={() => setPerson(n)} className="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-300">{n}</button>
+              ))}
+            </div>
+          </div>
+        )}
+        <button
+          disabled={!pay || (pay === "veresiye" && !person.trim()) || (pay !== "ikram" && !price)}
+          onClick={() => onSave({ productId: product.id, price: pay === "ikram" ? 0 : Number(price) || 0, listPrice: product.price, pay, person: person.trim() || undefined })}
+          className={`mt-4 flex w-full items-center justify-center gap-2 rounded-2xl py-4 text-lg font-black disabled:bg-slate-800 disabled:text-slate-500 ${pay === "ikram" ? "bg-violet-400 text-violet-950" : "bg-cyan-400 text-cyan-950"}`}>
+          <I n="check" className="h-5 w-5" /> {pay === "ikram" ? "İkramı kaydet" : "Satışı kaydet"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CloseTab({ day, hist, onClose }) {
+  const t = totals(day);
+  return (
+    <div className="px-4 py-4">
+      <div className="mb-4 flex items-center gap-2">
+        <I n="moon" className="h-5 w-5 text-cyan-300" />
+        <h2 className="text-xl font-black text-white">Gün sonu — {prettyDate(day.date)}</h2>
+      </div>
+      <div className="rounded-2xl bg-gradient-to-b from-cyan-400/15 to-transparent p-4">
+        <p className="text-xs font-bold uppercase tracking-wider text-cyan-300">Kasada olması gereken</p>
+        <p className="text-4xl font-black text-white">{tl(t.kasa)}</p>
+        <p className="mt-1 text-xs text-slate-400">Sabahki {tl(day.startCash)} + nakit {tl(t.nakit)} − harcama {tl(t.giderNakit)}</p>
+      </div>
+      <div className="mt-4 space-y-1 rounded-2xl bg-slate-900 p-4 text-sm">
+        <Row k="Toplam ciro" v={tl(t.ciro)} bold />
+        <Row k="Nakit" v={tl(t.nakit)} />
+        <Row k="IBAN'a gelen" v={tl(t.iban)} />
+        <Row k="Veresiye (tahsil edilmedi)" v={tl(t.veresiye)} tone="text-amber-400" />
+        <Row k={`İkram — ${t.ikramAdet} adet`} v={tl(t.ikramDeger)} tone="text-violet-300" />
+        <Row k="Ekstra harcama" v={`-${tl(t.giderHepsi)}`} tone="text-rose-400" />
+        <div className="my-2 border-t border-slate-800" />
+        <Row k="Günün net kazancı" v={tl(t.ciro - t.giderHepsi)} bold tone="text-emerald-400" />
+      </div>
+      <p className="mb-2 mt-5 text-xs font-bold uppercase tracking-wider text-cyan-300">Hangi üründen ne kazandık</p>
+      <div className="space-y-2">
+        {day.products.map((p) => {
+          const cikan = soldCount(day, p.id);
+          const ikram = day.sales.filter((s) => s.productId === p.id && s.pay === "ikram").length;
+          const adet = cikan - ikram;
+          const tutar = day.sales.filter((s) => s.productId === p.id).reduce((a, s) => a + s.price, 0);
+          const kalan = (day.startStock[p.id] || 0) - cikan;
+          return (
+            <div key={p.id} className="rounded-xl bg-slate-900 p-3">
+              <div className="flex items-baseline gap-2">
+                <span className="font-bold text-white">{p.name}</span>
+                <span className="text-xs text-slate-500">
+                  {adet} satıldı{ikram > 0 && <span className="text-violet-300"> · {ikram} ikram</span>} · dolapta {kalan} kaldı
+                </span>
+                <span className="ml-auto font-black text-cyan-300">{tl(tutar)}</span>
+              </div>
+              <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-800">
+                <div className="h-full bg-cyan-400" style={{ width: `${t.ciro ? (tutar / t.ciro) * 100 : 0}%` }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {t.veresiye > 0 && (
+        <>
+          <p className="mb-2 mt-5 text-xs font-bold uppercase tracking-wider text-amber-400">Veresiye defteri</p>
+          <div className="space-y-1">
+            {Object.entries(day.sales.filter((s) => s.pay === "veresiye").reduce((a, s) => ({ ...a, [s.person]: (a[s.person] || 0) + s.price }), {})).map(([n, v]) => (
+              <div key={n} className="flex justify-between rounded-lg bg-amber-400/10 px-3 py-2 text-sm">
+                <span>{n}</span><span className="font-black text-amber-300">{tl(v)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      {t.ikramAdet > 0 && (
+        <>
+          <p className="mb-2 mt-5 text-xs font-bold uppercase tracking-wider text-violet-300">İkramlar</p>
+          <div className="space-y-1">
+            {day.sales.filter((s) => s.pay === "ikram").map((s) => (
+              <div key={s.id} className="flex items-center gap-2 rounded-lg bg-violet-400/10 px-3 py-2 text-sm">
+                <span>{day.products.find((p) => p.id === s.productId)?.name}</span>
+                <span className="truncate text-slate-400">{s.person || "—"}</span>
+                <span className="ml-auto text-[10px] text-slate-500">{clock(s.ts)} · {s.by}</span>
+                <span className="font-bold text-violet-300">{tl(s.listPrice || 0)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+      <button onClick={onClose} className="mt-6 w-full rounded-2xl border border-slate-700 py-4 font-black text-slate-300">Günü kapat ve kaydet</button>
+      {hist.length > 0 && (
+        <div className="mt-8">
+          <p className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">Önceki günler</p>
+          {hist.slice(0, 10).map((h) => (
+            <div key={h.date + h.closedAt} className="flex justify-between border-b border-slate-800 py-2 text-sm">
+              <span className="text-slate-400">{prettyDate(h.date)}</span>
+              <span className="text-slate-500">{h.sales.length} satış</span>
+              <span className="font-bold text-cyan-300">{tl(totals(h).ciro)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const Row = ({ k, v, bold, tone = "text-slate-200" }) => (
+  <div className="flex justify-between">
+    <span className="text-slate-400">{k}</span>
+    <span className={`${bold ? "font-black" : "font-semibold"} ${tone}`}>{v}</span>
+  </div>
+);
+
+function SettingsTab({ day, mutate }) {
+  return (
+    <div className="px-4 py-4">
+      <h2 className="mb-1 text-xl font-black text-white">Ayarlar</h2>
+      <p className="mb-4 text-sm text-slate-500">Fiyatı değiştirirsen sonraki satışlara uygulanır.</p>
+      <div className="space-y-2">
+        {day.products.map((p, i) => (
+          <div key={p.id} className="flex items-center gap-3 rounded-xl bg-slate-900 p-3">
+            <input value={p.name}
+              onChange={(e) => mutate((d) => { const ps = [...d.products]; ps[i] = { ...ps[i], name: e.target.value }; return { ...d, products: ps }; })}
+              className="min-w-0 flex-1 bg-transparent font-semibold text-white outline-none" />
+            <input inputMode="decimal" value={p.price}
+              onChange={(e) => mutate((d) => { const ps = [...d.products]; ps[i] = { ...ps[i], price: Number(e.target.value.replace(",", ".")) || 0 }; return { ...d, products: ps }; })}
+              className="w-20 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-right font-black text-cyan-300 outline-none focus:border-cyan-400" />
+            <span className="font-black text-cyan-300">₺</span>
+          </div>
+        ))}
+      </div>
+      <button onClick={() => mutate((d) => ({ ...d, products: [...d.products, { id: uid(), name: "Yeni ürün", price: 0 }] }))}
+        className="mt-3 w-full rounded-xl border border-dashed border-slate-700 py-3 text-sm font-bold text-slate-400">+ Ürün ekle</button>
+      <p className="mb-2 mt-6 text-xs font-bold uppercase tracking-wider text-cyan-300">Dolap sayımını düzelt</p>
+      <div className="space-y-2">
+        {day.products.map((p) => (
+          <div key={p.id} className="flex items-center gap-3 rounded-xl bg-slate-900 p-3">
+            <span className="flex-1 text-sm font-semibold">{p.name} — sabah</span>
+            <Stepper value={String(day.startStock[p.id] ?? 0)}
+              onChange={(v) => mutate((d) => ({ ...d, startStock: { ...d.startStock, [p.id]: Number(v) || 0 } }))} />
+          </div>
+        ))}
+      </div>
+      <div className="mt-6 flex items-center gap-3 rounded-xl bg-slate-900 p-3">
+        <span className="flex-1 text-sm font-semibold">Sabah kasadaki para</span>
+        <input inputMode="decimal" value={day.startCash}
+          onChange={(e) => mutate((d) => ({ ...d, startCash: Number(e.target.value.replace(",", ".")) || 0 }))}
+          className="w-24 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1.5 text-right font-black text-cyan-300 outline-none focus:border-cyan-400" />
+      </div>
+    </div>
+  );
+}
+
+function TabBar({ tab, setTab }) {
+  const items = [
+    { k: "satis", label: "Satış", icon: "drop" },
+    { k: "gunsonu", label: "Gün sonu", icon: "moon" },
+    { k: "ayar", label: "Ayarlar", icon: "gear" },
+  ];
+  return (
+    <div className="fixed bottom-0 left-0 right-0 z-20 flex border-t border-slate-800 bg-slate-950/95 pb-[env(safe-area-inset-bottom)] backdrop-blur">
+      {items.map(({ k, label, icon }) => (
+        <button key={k} onClick={() => setTab(k)} className={`flex flex-1 flex-col items-center gap-1 py-3 ${tab === k ? "text-cyan-300" : "text-slate-500"}`}>
+          <I n={icon} className="h-5 w-5" />
+          <span className="text-[11px] font-bold">{label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App />);
+</script>
+</body>
+</html>
