@@ -1,10 +1,10 @@
 {
-  "name": "Su Kasa",
-  "short_name": "Su Kasa",
+  "name": "Özbey Spor Salonu",
+  "short_name": "Özbey",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#020617",
-  "theme_color": "#020617",
+  "background_color": "#05131c",
+  "theme_color": "#05131c",
   "orientation": "portrait",
   "icons": [
     {
